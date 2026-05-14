@@ -1,0 +1,50 @@
+# --- Python / uv ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-wheel-metadata/
+
+# 建置與套件產物（保留 uv.lock 以利重現依賴）
+dist/
+build/
+*.egg-info/
+.eggs/
+*.egg
+
+# --- 測試 / 型別 / Lint ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# --- 本機與密鑰 ---
+.env
+.env.*
+!.env.example
+
+# --- 編輯器 / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*.swo
+*~
+
+# --- 本機外掛／工具狀態（若存在）---
+.omc/
+
+# --- Node（若日後在 node/ 安裝依賴）---
+node_modules/
+
+# --- 日誌 ---
+*.log
