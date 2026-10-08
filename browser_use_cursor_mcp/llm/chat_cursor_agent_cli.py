@@ -1,5 +1,8 @@
 """
-以本機 Cursor `agent` CLI 子行程實作 browser_use.llm.base.BaseChatModel（Protocol）的 ainvoke。
+以本機 Cursor 驅動 browser_use.llm.base.BaseChatModel（Protocol）的 ainvoke：
+
+- 預設：每步以子行程呼叫 ``agent`` CLI（``--print --output-format json``）。
+- 可選：``BROWSER_USE_CURSOR_AGENT_TRANSPORT=sdk_stdio`` 時改為長駐 Node + ``@cursor/sdk``（單一 worker 程序內多步 ``send``）。
 
 browser-use 0.12+ 已不再使用 LangChain 的 BaseChatModel._generate；改為 async ainvoke。
 """
@@ -34,6 +37,11 @@ from browser_use.llm.messages import (
 )
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
+
+from browser_use_cursor_mcp.llm.cursor_agent_sdk_stdio import (
+	get_sdk_stdio_bridge,
+	sdk_stdio_transport_enabled,
+)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -306,6 +314,11 @@ class ChatCursorAgentCLI(BaseChatModel):
 	非互動呼叫時會自動加上 **``--yolo``**（等同 ``--force``，減少互動阻擋）與 **``--trust``**
 	（搭配 ``--print`` 時略過 workspace 信任提示），供 MCP／自動化使用。
 
+	若設定 **``BROWSER_USE_CURSOR_AGENT_TRANSPORT=sdk_stdio``**，改為啟動**單一**長駐 Node
+	worker（``node/cursor_agent_sdk_worker.mjs`` + ``@cursor/sdk``），在同一個 Cursor Agent 上
+	連續 ``send``，不再每步 ``exec`` ``agent`` CLI（需 ``npm install`` 於 ``node/`` 並設定
+	``CURSOR_API_KEY``）。**``auto``**（及空白）在 SDK 會對應為 **``default``**；其餘與 ``BROWSER_USE_CURSOR_AGENT_MODEL``／``CURSOR_AGENT_MODEL`` 一致。預設仍為 CLI 子行程模式。
+
 	若 browser-use 傳入 ``session_id``（kwargs），會把 Cursor ``agent`` 回傳外層 JSON 的 ``session_id`` 記住，
 	後續同一個 browser-use 工作階段的 ``ainvoke`` 會加上 ``--resume <id>`` 以重用對話（可用環境變數
 	``BROWSER_USE_CURSOR_AGENT_RESUME=0`` 關閉）。
@@ -324,6 +337,8 @@ class ChatCursorAgentCLI(BaseChatModel):
 
 	@property
 	def provider(self) -> str:
+		if sdk_stdio_transport_enabled():
+			return "cursor-agent-sdk-stdio"
 		return "cursor-agent-cli"
 
 	@property
@@ -388,47 +403,79 @@ class ChatCursorAgentCLI(BaseChatModel):
 					"沒有要附檔時請填 `[]`，檔案路徑僅寫在 `text` 說明中即可。"
 				)
 
-			cursor_resume_id = await _get_stored_cursor_resume_id(bu_session)
-			used_resume = bool(cursor_resume_id)
-
-			exe = self._resolve_executable()
-			cmd: list[str] = [exe, *self.extra_args]
-			if cursor_resume_id:
-				cmd.extend(["--resume", cursor_resume_id])
-			if self.model:
-				cmd.extend(["--model", self.model])
-			# 非互動：略過 workspace 信任提示；--yolo 等同 --force，降低 CLI 互動阻擋
-			cmd.extend(["--yolo", "--trust", "--print", "--output-format", "json", serialized])
-
-			proc = await asyncio.create_subprocess_exec(
-				*cmd,
-				stdout=asyncio.subprocess.PIPE,
-				stderr=asyncio.subprocess.PIPE,
-				env=os.environ.copy(),
-			)
-			try:
-				stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=self.timeout_sec)
-			except TimeoutError as e:
-				proc.kill()
-				if used_resume and bu_session:
-					await _forget_cursor_resume_id(bu_session)
-				raise ModelProviderError(
-					message=f"agent CLI 逾時（{self.timeout_sec}s）",
-					status_code=504,
-					model=self.name,
-				) from e
-
-			stdout = stdout_b.decode("utf-8", errors="replace")
-			stderr = stderr_b.decode("utf-8", errors="replace")
-
-			if proc.returncode != 0:
-				if used_resume and bu_session:
-					await _forget_cursor_resume_id(bu_session)
-				raise ModelProviderError(
-					message=f"agent CLI 結束碼 {proc.returncode}。stderr:\n{stderr[-4000:]}",
-					status_code=502,
-					model=self.name,
+			if sdk_stdio_transport_enabled():
+				cwd = (os.environ.get("BROWSER_USE_CURSOR_AGENT_WORKSPACE") or os.getcwd()).strip()
+				bridge = await get_sdk_stdio_bridge()
+				try:
+					text_result = await asyncio.wait_for(
+						bridge.send_prompt(
+							prompt=serialized,
+							session_id=bu_session,
+							model=self.model,
+							cwd=cwd,
+						),
+						timeout=self.timeout_sec,
+					)
+				except TimeoutError as e:
+					raise ModelProviderError(
+						message=f"@cursor/sdk worker 逾時（{self.timeout_sec}s）",
+						status_code=504,
+						model=self.name,
+					) from e
+				except RuntimeError as e:
+					raise ModelProviderError(message=str(e), status_code=500, model=self.name) from e
+				stdout = json.dumps(
+					{
+						"type": "result",
+						"subtype": "success",
+						"is_error": False,
+						"result": text_result,
+					},
+					ensure_ascii=False,
 				)
+				stderr = ""
+			else:
+				cursor_resume_id = await _get_stored_cursor_resume_id(bu_session)
+				used_resume = bool(cursor_resume_id)
+
+				exe = self._resolve_executable()
+				cmd: list[str] = [exe, *self.extra_args]
+				if cursor_resume_id:
+					cmd.extend(["--resume", cursor_resume_id])
+				if self.model:
+					cmd.extend(["--model", self.model])
+				# 非互動：略過 workspace 信任提示；--yolo 等同 --force，降低 CLI 互動阻擋
+				cmd.extend(["--yolo", "--trust", "--print", "--output-format", "json", serialized])
+
+				proc = await asyncio.create_subprocess_exec(
+					*cmd,
+					stdout=asyncio.subprocess.PIPE,
+					stderr=asyncio.subprocess.PIPE,
+					env=os.environ.copy(),
+				)
+				try:
+					stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=self.timeout_sec)
+				except TimeoutError as e:
+					proc.kill()
+					if used_resume and bu_session:
+						await _forget_cursor_resume_id(bu_session)
+					raise ModelProviderError(
+						message=f"agent CLI 逾時（{self.timeout_sec}s）",
+						status_code=504,
+						model=self.name,
+					) from e
+
+				stdout = stdout_b.decode("utf-8", errors="replace")
+				stderr = stderr_b.decode("utf-8", errors="replace")
+
+				if proc.returncode != 0:
+					if used_resume and bu_session:
+						await _forget_cursor_resume_id(bu_session)
+					raise ModelProviderError(
+						message=f"agent CLI 結束碼 {proc.returncode}。stderr:\n{stderr[-4000:]}",
+						status_code=502,
+						model=self.name,
+					)
 
 			usage = ChatInvokeUsage(
 				prompt_tokens=0,

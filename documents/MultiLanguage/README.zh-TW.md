@@ -167,6 +167,9 @@ Cursor `agent --output-format json` 常把模型內容放在 **`result` 字串**
 | `BROWSER_USE_MCP_PAGE_READINESS_TIMEOUT_SEC` | 若設為**正數**（秒），覆寫 browser-use 內「**跨網域**」導航時 CDP 頁面就緒輪詢上限（函式庫在未指定 `timeout_ms` 時預設 **8** 秒）；**同網域**仍維持內建 **3** 秒。慢載入／SPA 若出現 `Page readiness timeout` 警告可酌調大（例如 `20`）。 |
 | `CURSOR_AGENT_CMD` | 僅 `cursor_agent` 模式；預設 `agent` |
 | `BROWSER_USE_CURSOR_AGENT_MODEL` / `CURSOR_AGENT_MODEL` | 見「LLM 後端」一節；`agent --model`（預設 `auto`） |
+| `BROWSER_USE_CURSOR_AGENT_RESUME` | 預設 `1`。設為 `0` / `false` / `no` / `off` 則**關閉**以 ``--resume`` 重用 Cursor 對話。**`BROWSER_USE_CURSOR_AGENT_TRANSPORT=sdk_stdio` 時不適用**（改由 SDK 在單一程序內維持每個 browser-use `session_id` 的 Agent）。 |
+| `BROWSER_USE_CURSOR_AGENT_TRANSPORT` | 未設定時為預設：每步 **子行程** 呼叫 ``agent`` CLI。設為 **`sdk_stdio`** 時改為**單一長駐 Node** + ``@cursor/sdk``（需 ``node/`` 的 ``npm install``、**`CURSOR_API_KEY`**）。模型 id 原則同 **`BROWSER_USE_CURSOR_AGENT_MODEL`**／**`CURSOR_AGENT_MODEL`**；**``auto``**（及空白）會對應為 SDK 的 **``default``**（SDK 不接受字面值 ``auto``）。可選：`NODE_BIN`、`BROWSER_USE_CURSOR_AGENT_WORKSPACE`。 |
+| `CURSOR_API_KEY` | 使用 **`sdk_stdio`** 時**必填**。 |
 | `BROWSER_USE_CURSOR_AGENT_PLAINTEXT_FALLBACK` | 預設 `1`。當 Cursor `agent` 的 `result` 為純文字、內文無可驗證的 `AgentOutput` JSON 時，**自動包成 `done` 動作**讓 browser-use 能繼續。設為 `0` / `false` / `no` / `off` 則**關閉**（僅接受嚴格 JSON）。 |
 | `BROWSER_USE_SETUP_LOGGING` | 伺服器啟動時設為 `false` 以免汙染 MCP stdio |
 | `BROWSER_USE_MCP_LLM_TIMEOUT_SEC` | `Agent.llm_timeout`（秒），預設 `600` |

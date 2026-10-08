@@ -167,6 +167,9 @@ Cursor の `agent --output-format json` は、モデル出力を **`result` 文�
 | `BROWSER_USE_MCP_PAGE_READINESS_TIMEOUT_SEC` | **正の数**（秒）を指定すると、`NavigateToUrlEvent.timeout_ms` 未指定時の「**クロスドメイン**」CDP ページ準備待ち上限を上書き（ライブラリ既定 **8** 秒）。**同一ドメイン**は既定 **3** 秒のまま。`Page readiness timeout` が出る遅い SPA 向けに例: `20`。 |
 | `CURSOR_AGENT_CMD` | `cursor_agent` モードのみ。既定 `agent` |
 | `BROWSER_USE_CURSOR_AGENT_MODEL` / `CURSOR_AGENT_MODEL` | 「LLM バックエンド」節を参照。`agent --model`（既定 `auto`） |
+| `BROWSER_USE_CURSOR_AGENT_RESUME` | 既定 `1`。`0` / `false` / `no` / `off` で ``--resume`` を無効化。**`BROWSER_USE_CURSOR_AGENT_TRANSPORT=sdk_stdio` では無視**（SDK が browser-use `session_id` ごとに単一プロセス内で Agent を維持）。 |
+| `BROWSER_USE_CURSOR_AGENT_TRANSPORT` | 未設定：各ステップで ``agent`` CLI。**`sdk_stdio`**：単一 Node + ``@cursor/sdk``（``node/`` で ``npm install``、**`CURSOR_API_KEY`**）。モデルは原則 **`BROWSER_USE_CURSOR_AGENT_MODEL`**／**`CURSOR_AGENT_MODEL`** と同じ；**`auto`**（および空白）は SDK 向けに **`default`** にマップ（SDK は ``auto`` 文字列不可）。任意：`NODE_BIN`、`BROWSER_USE_CURSOR_AGENT_WORKSPACE`。 |
+| `CURSOR_API_KEY` | **`sdk_stdio`** では**必須**。 |
 | `BROWSER_USE_CURSOR_AGENT_PLAINTEXT_FALLBACK` | 既定 `1`。Cursor `agent` の `result` がプレーンテキストで、検証可能な `AgentOutput` JSON が含まれない場合、**`done` アクションにラップ**して browser-use を継続させる。`0` / `false` / `no` / `off` で**無効**（厳密な JSON のみ）。 |
 | `BROWSER_USE_SETUP_LOGGING` | サーバー起動時に `false` にすると MCP stdio を汚染しにくくなる |
 | `BROWSER_USE_MCP_LLM_TIMEOUT_SEC` | `Agent.llm_timeout`（秒）。既定 `600` |

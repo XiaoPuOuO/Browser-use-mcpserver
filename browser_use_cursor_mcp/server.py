@@ -151,7 +151,19 @@ async def _handle_browser_use_run_task(arguments: dict[str, Any]) -> list[types.
 		step_timeout=step_timeout,
 	)
 
-	history = await agent.run(max_steps=max_steps)
+	try:
+		history = await agent.run(max_steps=max_steps)
+	finally:
+		try:
+			from browser_use_cursor_mcp.llm.cursor_agent_sdk_stdio import (
+				dispose_sdk_session,
+				sdk_stdio_transport_enabled,
+			)
+
+			if sdk_stdio_transport_enabled():
+				await dispose_sdk_session(agent.session_id)
+		except Exception:
+			pass
 
 	final = history.final_result()
 	success = history.is_successful()

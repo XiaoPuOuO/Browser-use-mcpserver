@@ -13,10 +13,13 @@ def resolve_llm_from_env() -> BaseChatModel:
 	"""
 	讀取 BROWSER_USE_MCP_LLM：
 
-	- ``cursor_agent``（預設）：``ChatCursorAgentCLI`` → 子行程呼叫本機 ``agent``（``--model`` 由
+	- ``cursor_agent``（預設）：``ChatCursorAgentCLI`` → 預設每步以子行程呼叫本機 ``agent``（``--model`` 由
 	  ``BROWSER_USE_CURSOR_AGENT_MODEL`` / ``CURSOR_AGENT_MODEL`` 決定，預設 ``auto``）。
-	  同一 browser-use ``session_id`` 下會記住 Cursor 回傳的 ``session_id`` 並以 ``--resume`` 重用（可用
-	  ``BROWSER_USE_CURSOR_AGENT_RESUME=0`` 關閉）。
+	  若設定 **``BROWSER_USE_CURSOR_AGENT_TRANSPORT=sdk_stdio``**，改為**單一**長駐 Node worker +
+	  ``@cursor/sdk``（需 ``npm install`` 於 ``node/`` 與 ``CURSOR_API_KEY``），同一 browser-use
+	  ``session_id`` 內連續 ``send``，不再每步 ``exec`` ``agent``；**``auto``**（及空白模型）在 SDK 會對應為 **``default``**（@cursor/sdk 不接受字面值 ``auto``），其餘 id 與 CLI 相同。
+	  同一 ``session_id`` 下 CLI 模式會記住 Cursor 回傳的 ``session_id`` 並以 ``--resume`` 重用（可用
+	  ``BROWSER_USE_CURSOR_AGENT_RESUME=0`` 關閉；**sdk_stdio 模式不使用 resume**）。
 	- ``openai``：``browser_use.llm.openai.chat.ChatOpenAI`` → OpenAI 官方或相容服務
 	  （LM Studio、Ollama 的 OpenAI 相容端點、vLLM 等），格式與 OpenAI Chat Completions 一致。
 

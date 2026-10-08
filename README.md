@@ -4,7 +4,7 @@
 
 Runs browser automation with [browser-use](https://github.com/browser-use/browser-use). The LLM used for reasoning is selected via **environment variables**:
 
-- **Default `cursor_agent`**: spawns the local **`agent` (Cursor Agent CLI)** subprocess (requires `agent login`).
+- **Default `cursor_agent`**: by default, each step spawns the local **`agent` (Cursor Agent CLI)** subprocess (requires `agent login`). Set **`BROWSER_USE_CURSOR_AGENT_TRANSPORT=sdk_stdio`** to use **one long-lived Node process** with **`@cursor/sdk`** (`Agent.send` per step; requires **`CURSOR_API_KEY`** from Dashboard → Integrations and `npm install` in `node/`).
 - **`openai`**: browser-use’s built-in **OpenAI-style** `ChatOpenAI` (`base_url` + `api_key` + `model` can point at LM Studio, Ollama-compatible endpoints, vLLM, etc.).
 
 ## Requirements
@@ -12,7 +12,7 @@ Runs browser automation with [browser-use](https://github.com/browser-use/browse
 - Python 3.11+
 - [uv](https://github.com/astral-sh/uv) (recommended)
 - Local Chromium/Chrome (browser-use drives the browser with Playwright by default)
-- **For `cursor_agent`**: `agent` installed and **`agent login`** completed
+- **For `cursor_agent`**: `agent` installed and **`agent login`** completed (CLI mode). For **`sdk_stdio`**: run **`npm install`** in **`node/`** and set **`CURSOR_API_KEY`** (Dashboard → Integrations; not the same as `agent login`).
 - **For `openai`**: your compatible service is running and URL/model are set in the MCP `env` (below)
 
 ## Install
@@ -36,7 +36,7 @@ This project talks to Cursor over **stdio**: **no MCP URL** is required, and you
 
 | `BROWSER_USE_MCP_LLM` | Behavior |
 |------------------------|----------|
-| `cursor_agent` (default) | Subprocess calls local `agent` (`--model` in table below, default **auto**) |
+| `cursor_agent` (default) | By default: subprocess per step → local `agent` CLI (`--model` in table below, default **auto**). Optional: set **`BROWSER_USE_CURSOR_AGENT_TRANSPORT=sdk_stdio`** for one Node worker + `@cursor/sdk` (see env table). |
 | `openai` | OpenAI-compatible HTTP API (hosted or local) |
 
 ### `cursor_agent`: `agent --model` (default **auto**)
@@ -45,7 +45,15 @@ This project talks to Cursor over **stdio**: **no MCP URL** is required, and you
 |----------|-------------|
 | `BROWSER_USE_CURSOR_AGENT_MODEL` or `CURSOR_AGENT_MODEL` | Passed to `agent --model`; unset means **auto**; use `agent --list-models` for ids; set to **whitespace only** to omit `--model` (agent’s built-in default) |
 
-For non-interactive MCP calls, the server automatically adds **`--yolo`** (same as `--force`) and **`--trust`** (with `--print`, skips workspace trust prompts); you do not need to duplicate these in MCP config.
+For non-interactive MCP calls, the server automatically adds **`--yolo`** (same as `--force`) and **`--trust`** (with `--print`, skips workspace trust prompts) when using the **default CLI** transport; you do not need to duplicate these in MCP config. The **`sdk_stdio`** transport does not spawn the `agent` binary.
+
+### `cursor_agent` + `sdk_stdio` (single Node worker)
+
+1. `cd node && npm install`
+2. Set **`CURSOR_API_KEY`** in MCP `env` (Dashboard → Integrations).
+3. Set **`BROWSER_USE_CURSOR_AGENT_TRANSPORT=sdk_stdio`**.
+
+Optional: **`NODE_BIN`**, **`BROWSER_USE_CURSOR_AGENT_WORKSPACE`** (SDK `cwd`). **Note:** `@cursor/sdk` does not accept the literal model id `auto`; in **`sdk_stdio`** mode, **`auto`** (and whitespace-only model) is mapped to **`default`** so it matches the SDK’s allowed list. Other ids pass through unchanged.
 
 For OpenAI-compatible backends, set these in the MCP **`env`** in Cursor (either name works; this project prefers `BROWSER_USE_*`):
 
@@ -71,7 +79,7 @@ With `agent --output-format json`, Cursor often puts model output inside the **`
 
 ### Troubleshooting: `Step N timed out after 180 seconds`
 
-That is browser-use’s **`Agent.step_timeout`** (default **180s** per step). With **`cursor_agent`**, each step waits on the local `agent` subprocess and vision-heavy prompts (e.g. screenshots) can exceed 180s. This MCP sets **`step_timeout` to 600s** when neither **`BROWSER_USE_MCP_STEP_TIMEOUT_SEC`** nor the tool argument **`step_timeout`** is set. Raise them (e.g. `900` or `1200`) for very slow runs.
+That is browser-use’s **`Agent.step_timeout`** (default **180s** per step). With **`cursor_agent`** in **CLI** mode, each step waits on the local `agent` subprocess and vision-heavy prompts (e.g. screenshots) can exceed 180s. This MCP sets **`step_timeout` to 600s** when neither **`BROWSER_USE_MCP_STEP_TIMEOUT_SEC`** nor the tool argument **`step_timeout`** is set. Raise them (e.g. `900` or `1200`) for very slow runs. With **`sdk_stdio`**, each step still has the same cap, but there is no per-step `agent` process spawn.
 
 ## Example Cursor MCP configuration
 
@@ -171,7 +179,9 @@ If you need many fine-grained tools (navigate/click/read state), that matches th
 | `BROWSER_USE_MCP_PAGE_READINESS_TIMEOUT_SEC` | If set to a **positive number** (seconds), overrides browser-use’s **cross-domain** CDP “page readiness” poll cap when `NavigateToUrlEvent.timeout_ms` is unset (library default **8**). **Same-domain** navigations keep the library default **3**. Use for slow SPAs when you see `Page readiness timeout … for <url>`. |
 | `CURSOR_AGENT_CMD` | `cursor_agent` mode only; default `agent` |
 | `BROWSER_USE_CURSOR_AGENT_MODEL` / `CURSOR_AGENT_MODEL` | See “LLM backend”; `agent --model` (default `auto`) |
-| `BROWSER_USE_CURSOR_AGENT_RESUME` | Default `1`. Set to `0` / `false` / `no` / `off` to **disable** reusing Cursor `agent --resume <session_id>` across browser-use steps (same `session_id` in kwargs). |
+| `BROWSER_USE_CURSOR_AGENT_RESUME` | Default `1`. Set to `0` / `false` / `no` / `off` to **disable** reusing Cursor `agent --resume <session_id>` across browser-use steps (same `session_id` in kwargs). **Ignored** when `BROWSER_USE_CURSOR_AGENT_TRANSPORT=sdk_stdio` (SDK keeps one agent per `session_id` in-process). |
+| `BROWSER_USE_CURSOR_AGENT_TRANSPORT` | Default unset (CLI subprocess per step). Set to **`sdk_stdio`** for a **single long-lived Node worker** using `@cursor/sdk` (`Agent.send` per step, one OS process). Requires `npm install` in `node/` and **`CURSOR_API_KEY`** (Dashboard → Integrations). Model id follows **`BROWSER_USE_CURSOR_AGENT_MODEL` / `CURSOR_AGENT_MODEL`**, except **`auto`** (and whitespace-only) maps to **`default`** for the SDK. Optional: `NODE_BIN`, `BROWSER_USE_CURSOR_AGENT_WORKSPACE` (cwd for the SDK agent). |
+| `CURSOR_API_KEY` | Required for **`sdk_stdio`** transport. Not the same as interactive `agent login`. |
 | `BROWSER_USE_CURSOR_AGENT_PLAINTEXT_FALLBACK` | Default `1`. When the Cursor `agent` `result` is plain text without embeddable `AgentOutput` JSON, **wrap it as a `done` action** so browser-use can continue. Set to `0` / `false` / `no` / `off` to **disable** (strict parse only). |
 | `BROWSER_USE_SETUP_LOGGING` | Set to `false` on server start to avoid polluting MCP stdio |
 | `BROWSER_USE_MCP_LLM_TIMEOUT_SEC` | `Agent.llm_timeout` in seconds; default `600` |
